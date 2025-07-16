@@ -99,8 +99,8 @@ def get_tenants():
 
 
 # Add a rent payment
-@app.route('/add-payment', methods=['POST'])
-def add_payment():
+@app.route('/add-rent', methods=['POST'])
+def add_rent():
     data = request.get_json()
     tenant_id = data.get('tenant_id')
     amount = data.get('amount')
@@ -155,11 +155,11 @@ def tenant_status():
 
     return jsonify(result)
 
-@app.route('/tenants', methods=['GET'])
-def get_tenants():
-    tenants = Tenant.query.all()
-    result = [{'id': t.id, 'name': t.name} for t in tenants]
-    return jsonify(result)
+# @app.route('/tenants', methods=['GET'])
+# def get_tenants():
+#     tenants = Tenant.query.all()
+#     result = [{'id': t.id, 'name': t.name} for t in tenants]
+#     return jsonify(result)
 
 
 
