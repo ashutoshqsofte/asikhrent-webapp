@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - DB_HOST=db
+      - DB_USER=youruser
+      - DB_PASSWORD=yourpass
+      - DB_NAME=yourdb
+    depends_on:
+      - db
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+
+  db:
+    image: postgres:14
+    restart: always
+    environment:
+      POSTGRES_USER: youruser
+      POSTGRES_PASSWORD: yourpass
+      POSTGRES_DB: yourdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

@@ -7,10 +7,9 @@ from datetime import datetime
 app = Flask(__name__)
 CORS(app)
 
-# Database configuration
+# ---------------- Database Configuration ---------------- #
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:postgres%40ashutosh@localhost/asikh_rent'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
 db = SQLAlchemy(app)
 
 # ---------------- Models ---------------- #
@@ -26,11 +25,13 @@ class User(db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
+
 class Tenant(db.Model):
     __tablename__ = 'tenants'
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100))
-    rent_amount = db.Column(db.Numeric)
+    name = db.Column(db.String(100), nullable=False)
+    rent_amount = db.Column(db.Numeric, nullable=False)
+
 
 class RentPayment(db.Model):
     __tablename__ = 'rent_payments'
@@ -42,9 +43,15 @@ class RentPayment(db.Model):
     tenant = db.relationship('Tenant', backref='payments')
 
 
+class Expense(db.Model):
+    __tablename__ = 'expenses'
+    id = db.Column(db.Integer, primary_key=True)
+    reason = db.Column(db.String(255), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    date_spent = db.Column(db.Date, nullable=False)
+
 # ---------------- Routes ---------------- #
 
-# Register
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -59,46 +66,37 @@ def register():
 
     db.session.add(user)
     db.session.commit()
-
     return jsonify({'message': 'User registered successfully'})
 
 
-# Login
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    user = User.query.filter_by(username=data['username']).first()
+    user = User.query.filter_by(username=data.get('username')).first()
 
-    if user and user.check_password(data['password']):
+    if user and user.check_password(data.get('password')):
         return jsonify({'message': 'Login successful'})
-    else:
-        return jsonify({'message': 'Invalid credentials'}), 401
+    return jsonify({'message': 'Invalid credentials'}), 401
 
 
-# Rent History API
 @app.route('/rent-history', methods=['GET'])
 def rent_history():
-    payments = RentPayment.query.all()
-    result = []
-
-    for payment in payments:
-        result.append({
-            'tenant_name': payment.tenant.name,
-            'amount': float(payment.amount),
-            'date_paid': payment.date_paid.strftime('%Y-%m-%d')
-        })
+    payments = RentPayment.query.order_by(RentPayment.date_paid.desc()).all()
+    result = [{
+        'tenant_name': payment.tenant.name,
+        'amount': float(payment.amount),
+        'date_paid': payment.date_paid.strftime('%Y-%m-%d')
+    } for payment in payments]
 
     return jsonify(result)
 
 
-# Get all tenants
 @app.route('/tenants', methods=['GET'])
 def get_tenants():
     tenants = Tenant.query.all()
     return jsonify([{'id': t.id, 'name': t.name} for t in tenants])
 
 
-# Add a rent payment
 @app.route('/add-rent', methods=['POST'])
 def add_rent():
     data = request.get_json()
@@ -119,22 +117,8 @@ def add_rent():
         db.session.commit()
         return jsonify({'message': 'Payment added successfully'})
     except Exception as e:
-        return jsonify({'message': str(e)}), 500
+        return jsonify({'message': f'Error: {str(e)}'}), 500
 
-
-# ---------------- Init DB & Default Admin ---------------- #
-
-with app.app_context():
-    db.create_all()  # Creates tables if they don't exist
-
-    # Create a default admin user if not already created
-    if not User.query.filter_by(username='admin').first():
-        user = User(username='admin')
-        user.set_password('admin123')
-        db.session.add(user)
-        db.session.commit()
-
-        # ---------------- Tenant Status API ---------------- #
 
 @app.route('/tenant-status', methods=['GET'])
 def tenant_status():
@@ -155,15 +139,85 @@ def tenant_status():
 
     return jsonify(result)
 
-# @app.route('/tenants', methods=['GET'])
-# def get_tenants():
-#     tenants = Tenant.query.all()
-#     result = [{'id': t.id, 'name': t.name} for t in tenants]
-#     return jsonify(result)
+# ---------------- Expenses ---------------- #
+
+@app.route('/expenses', methods=['GET'])
+def get_expenses():
+    expenses = Expense.query.order_by(Expense.date_spent.desc()).all()
+    result = []
+    total = 0
+
+    for e in expenses:
+        total += float(e.amount)
+        result.append({
+            'id': e.id,
+            'reason': e.reason,
+            'amount': float(e.amount),
+            'date_spent': e.date_spent.strftime('%Y-%m-%d')
+        })
+
+    return jsonify({'expenses': result, 'total': total})
 
 
+@app.route('/expenses', methods=['POST'])
+def add_expense():
+    data = request.get_json()
+    try:
+        expense = Expense(
+            reason=data['reason'],
+            amount=data['amount'],
+            date_spent=datetime.strptime(data['date_spent'], '%Y-%m-%d')
+        )
+        db.session.add(expense)
+        db.session.commit()
+        return jsonify({'message': 'Expense added successfully'})
+    except Exception as e:
+        return jsonify({'message': f'Error: {str(e)}'}), 500
 
-# ---------------- Run the App ---------------- #
+
+@app.route('/expenses/<int:expense_id>', methods=['PUT'])
+def update_expense(expense_id):
+    data = request.get_json()
+    expense = Expense.query.get(expense_id)
+    if not expense:
+        return jsonify({'message': 'Expense not found'}), 404
+
+    try:
+        expense.reason = data['reason']
+        expense.amount = data['amount']
+        expense.date_spent = datetime.strptime(data['date_spent'], '%Y-%m-%d')
+        db.session.commit()
+        return jsonify({'message': 'Expense updated successfully'})
+    except Exception as e:
+        return jsonify({'message': f'Error: {str(e)}'}), 500
+
+
+@app.route('/expenses/<int:expense_id>', methods=['DELETE'])
+def delete_expense(expense_id):
+    expense = Expense.query.get(expense_id)
+    if not expense:
+        return jsonify({'message': 'Expense not found'}), 404
+
+    try:
+        db.session.delete(expense)
+        db.session.commit()
+        return jsonify({'message': 'Expense deleted successfully'})
+    except Exception as e:
+        return jsonify({'message': f'Error: {str(e)}'}), 500
+
+# ---------------- Init DB & Create Admin ---------------- #
+
+with app.app_context():
+    db.create_all()
+
+    # Create default admin user if not exists
+    if not User.query.filter_by(username='admin').first():
+        admin = User(username='admin')
+        admin.set_password('admin123')
+        db.session.add(admin)
+        db.session.commit()
+
+# ---------------- Run Server ---------------- #
 
 if __name__ == '__main__':
     app.run(debug=True)
